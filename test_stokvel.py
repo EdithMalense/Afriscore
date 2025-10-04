@@ -1,5 +1,5 @@
 import streamlit as st
-from Afriscore.savings import SavingsManager, Stokvel, IndividualSavings
+from savings import SavingsManager, Stokvel, IndividualSavings
 from datetime import datetime
 
 # Initialize session state
