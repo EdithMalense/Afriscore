@@ -1,0 +1,61 @@
+1️⃣ Model Type
+
+You are using a Random Forest Regressor.
+
+Random Forest is an ensemble method: it builds many decision trees and averages their predictions.
+
+Each tree learns rules like:
+
+“If savings > R10,000 and outstanding loans < R1,000 → credit score likely high.”
+
+“If stockvel contributions are low and monthly payments high → credit score likely low.”
+
+By averaging multiple trees, the model reduces overfitting and becomes more robust to noisy data.
+
+2️⃣ Features Used
+
+The model predicts a numeric credit score (300–850) using four features:
+
+Feature	Description
+savings	Total amount saved in individual savings account
+stockvel_contribution	Monthly contributions to stokvels
+monthly_payments	Amount of recurring monthly payments (utilities, bills, loan installments)
+outstanding_loans	Total outstanding loan balancess
+
+These features capture financial behavior and stability, which is what lenders typically consider.
+
+3️⃣ How the Prediction Works
+
+The app collects real user financial data from your SavingsManager and Stokvel info.
+
+These values are passed to the model as a numeric vector: [savings, stockvel_contribution, monthly_payments, outstanding_loans].
+
+Scaling: the model uses StandardScaler to normalize features so all numbers are comparable (savings might be in thousands, loans in hundreds).
+
+Random Forest prediction:
+
+Each tree in the forest makes a prediction of the credit score.
+
+The model averages all tree predictions to produce the final credit score.
+
+The final score is clipped to 300–850 to match standard credit score ranges.
+
+4️⃣ Interpreting the Score
+
+≥ 700 → Excellent credit, low risk
+
+600–699 → Fair credit, moderate risk
+
+< 600 → Poor credit, high risk
+
+So essentially, the model takes your financial data, finds patterns it learned from simulated or historical data, and outputs a score reflecting creditworthiness.
+
+5️⃣ Why Random Forest?
+
+Handles both small and large datasets well.
+
+Can capture non-linear relationships between features and credit score.
+
+Robust against outliers or noisy data.
+
+Provides fast predictions suitable for real-time apps.

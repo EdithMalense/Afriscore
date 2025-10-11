@@ -1,6 +1,10 @@
 import streamlit as st
 from savings import SavingsManager, Stokvel, IndividualSavings
 from datetime import datetime
+from creditscore import predict_credit_score
+import numpy as np
+import pandas as pd
+
 
 # Initialize session state
 if 'manager' not in st.session_state:
@@ -10,6 +14,32 @@ if 'current_user' not in st.session_state:
     st.session_state.current_user = "user_001"  # Default test user
 
 manager = st.session_state.manager
+
+def get_user_financial_data(manager, user_id):
+    data = {
+        "savings": 0.0,
+        "stockvel_contribution": 0.0,
+        "monthly_payments": 0.0,
+        "outstanding_loans": 0.0,
+    }
+
+    try:
+        savings = manager.get_individual_savings(user_id)
+        data["savings"] = sum(c["amount"] for c in savings.contributions)
+    except ValueError:
+        pass
+
+    user_stokvels = manager.get_user_stokvels(user_id)
+    if user_stokvels:
+        data["stockvel_contribution"] = sum(s["monthly_amount"] for s in user_stokvels)
+
+    # Demo placeholders for monthly payments and loans
+    utility_score = np.random.uniform(0.3, 0.9)
+    data["monthly_payments"] = utility_score * 5000
+    mobile_activity = len(user_stokvels) * 10 if user_stokvels else 0
+    data["outstanding_loans"] = mobile_activity * 100
+
+    return data
 
 st.title("💰 Savings Profile Manager")
 
@@ -23,7 +53,7 @@ with st.sidebar:
     st.info(f"Logged in as: {st.session_state.current_user}")
 
 # Main tabs
-tab1, tab2 = st.tabs(["🤝 Stokvel Savings", "💵 Individual Savings"])
+tab1, tab2, tab3 = st.tabs(["Stokvel Savings", "Individual Savings", "Credit Score"])
 
 # ============================================
 # STOKVEL TAB
@@ -134,6 +164,25 @@ with tab1:
                 except ValueError as e:
                     st.error(f"❌ {str(e)}")
 
+## ============================================
+# CREDIT SCORE TAB
+# ============================================
+with tab3:
+    st.header("💳 Credit Score Estimator")
+
+    user_data = get_user_financial_data(manager, st.session_state.current_user)
+
+    # Use the model from model.py
+    pred_score = predict_credit_score(user_data)
+
+    st.metric("Predicted Credit Score", f"{pred_score:.0f}")
+    if pred_score >= 700:
+        st.success("✅ Excellent Credit: Low risk borrower.")
+    elif pred_score >= 600:
+        st.info("🟨 Fair Credit: Moderate risk borrower.")
+    else:
+        st.warning("⚠️ Poor Credit: High risk borrower.")
+
 # ============================================
 # INDIVIDUAL SAVINGS TAB
 # ============================================
@@ -158,7 +207,7 @@ with tab2:
                 )
                 st.success("✅ Savings account created!")
                 st.rerun()
-        st.stop()
+            st.stop()
     
     # Display Savings Summary
     summary = individual_savings.get_savings_summary(include_interest=True)
@@ -223,7 +272,21 @@ with tab2:
         for i, contrib in enumerate(reversed(individual_savings.contributions)):
             st.write(f"**{contrib['date'].strftime('%Y-%m-%d %H:%M')}** - R{contrib['amount']:,.2f}")
 
+
 # Debug Info (collapsible)
 with st.sidebar.expander("🔧 Debug Info"):
     st.write("**All Stokvels:**", list(manager.stokvels.keys()))
     st.write("**All Savings Accounts:**", list(manager.individual_savings.keys()))
+
+# -------------------------------------------------------
+# Footer
+# -------------------------------------------------------
+
+st.markdown(
+    """
+    ---
+    **Afriscore** © 2025  
+    *Financial Freedom for all*
+    """
+)
+
