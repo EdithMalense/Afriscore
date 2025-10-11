@@ -219,8 +219,7 @@ class SecurityManager:
         self.security_events[event_id] = event
         return event
     
-    def verify_withdrawal_request(self, user_id: str, amount: float,
-                                 phone: str) -> Tuple[bool, str]:
+    def verify_withdrawal_request(self, user_id: str, amount: float) -> Tuple[bool, str]:
         """
         Verify if withdrawal request is allowed
         Returns: (is_allowed, reason)
@@ -258,7 +257,7 @@ class SecurityManager:
             user_id,
             SecurityEventType.WITHDRAWAL_REQUEST,
             RiskLevel.LOW,
-            {'amount': amount, 'phone': phone}
+            {'amount': amount}
         )
         
         return True, "Request allowed"

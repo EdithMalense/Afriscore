@@ -28,10 +28,10 @@ if 'security_manager' not in st.session_state:
     st.session_state.security_manager = SecurityManager()
 if 'payments_manager' not in st.session_state:
     st.session_state.payments_manager = PaymentsManager(
-        st.session_state.savings_manager,
-        security_manager=st.session_state.security_manager,
-        notifications_manager=st.session_state.notifications_manager
-    )
+    savings_manager=st.session_state.savings_manager,
+    security_manager=st.session_state.security_manager
+)
+
 
 # ==================================================
 # ALIASES
@@ -49,7 +49,7 @@ if 'current_user' not in st.session_state:
     st.session_state.current_user = "user_001"  # Default test user
 
 current_user = st.session_state.current_user
-manager = st.session_state.manager
+
 
 def get_user_financial_data(manager, user_id):
     data = {

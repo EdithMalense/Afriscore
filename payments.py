@@ -160,11 +160,19 @@ class StokvelPayoutSchedule:
 class PaymentsManager:
     """Main manager for all payment and withdrawal operations"""
     
-    def __init__(self, savings_manager):
+    # def __init__(self, savings_manager):
+    #     self.savings_manager = savings_manager
+    #     self.pins: Dict[str, PaymentPIN] = {}
+    #     self.stokvel_schedules: Dict[str, StokvelPayoutSchedule] = {}
+    #     self.pin_counter = 0s
+
+    def __init__(self, savings_manager, security_manager=None):
         self.savings_manager = savings_manager
+        self.security_manager = security_manager
         self.pins: Dict[str, PaymentPIN] = {}
         self.stokvel_schedules: Dict[str, StokvelPayoutSchedule] = {}
         self.pin_counter = 0
+
     
     def _generate_pin_id(self) -> str:
         """Generate unique PIN ID"""
@@ -190,7 +198,7 @@ class PaymentsManager:
         
         return self.stokvel_schedules[stokvel_id]
     
-    def request_individual_withdrawal(self, user_id: str, phone_number: str, 
+    def request_individual_withdrawal(self, user_id: str, 
                                      amount: float) -> PaymentPIN:
         """Request withdrawal from individual savings"""
         self._cleanup_expired_pins()
@@ -210,7 +218,6 @@ class PaymentsManager:
         pin = PaymentPIN(
             pin_id=pin_id,
             user_id=user_id,
-            phone_number=phone_number,
             amount=amount,
             withdrawal_type=WithdrawalType.INDIVIDUAL_SAVINGS,
             source_id=user_id
