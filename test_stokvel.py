@@ -1,73 +1,81 @@
 import streamlit as st
-from savings import SavingsManager, Stokvel, IndividualSavings
+from savings import SavingsManager
+from payments import PaymentsManager
+from notifications import NotificationManager
+from security import SecurityManager
 from datetime import datetime
-from creditscore import predict_credit_score
-from loans import LoanManager
-import numpy as np
-import pandas as pd
+from accounts import AccountManager, AccountType
 
-# Initialize session state
-if 'manager' not in st.session_state:
-    st.session_state.manager = SavingsManager()
+# ==================================================
+# INITIALIZE MANAGERS IN SESSION STATE
+# ==================================================
+if 'account_manager' not in st.session_state:
+    st.session_state.account_manager = AccountManager()
+if 'savings_manager' not in st.session_state:
+    st.session_state.savings_manager = SavingsManager()
+if 'notifications_manager' not in st.session_state:
+    st.session_state.notifications_manager = NotificationManager()
+if 'security_manager' not in st.session_state:
+    st.session_state.security_manager = SecurityManager()
+if 'payments_manager' not in st.session_state:
+    st.session_state.payments_manager = PaymentsManager(
+        st.session_state.savings_manager,
+        security_manager=st.session_state.security_manager,
+        notifications_manager=st.session_state.notifications_manager
+    )
 
+# ==================================================
+# ALIASES
+# ==================================================
+manager = st.session_state.savings_manager
+payments = st.session_state.payments_manager
+security = st.session_state.security_manager
+notifs = st.session_state.notifications_manager
+
+# ==================================================
+# DEFAULT USER
+# ==================================================
 if 'current_user' not in st.session_state:
-    st.session_state.current_user = "user_001"  # Default test user
-
-# Initialize LoanManager
-if 'loan_manager' not in st.session_state:
-    st.session_state.loan_manager = LoanManager()
-
-loan_manager = st.session_state.loan_manager
-
-manager = st.session_state.manager
-
-def get_user_financial_data(manager, user_id):
-    data = {
-        "savings": 0.0,
-        "stockvel_contribution": 0.0,
-        "monthly_payments": 0.0,
-        "outstanding_loans": 0.0,
-    }
-
-    try:
-        savings = manager.get_individual_savings(user_id)
-        data["savings"] = sum(c["amount"] for c in savings.contributions)
-    except ValueError:
-        pass
-
-    user_stokvels = manager.get_user_stokvels(user_id)
-    if user_stokvels:
-        data["stockvel_contribution"] = sum(s["monthly_amount"] for s in user_stokvels)
-
-    # Demo placeholders for monthly payments and loans
-    utility_score = np.random.uniform(0.3, 0.9)
-    data["monthly_payments"] = utility_score * 5000
-    mobile_activity = len(user_stokvels) * 10 if user_stokvels else 0
-    data["outstanding_loans"] = mobile_activity * 100
-
-    return data
+    st.session_state.current_user = "user_001"
 
 st.title("💰 Savings Profile Manager")
 
-# Sidebar for user selection (for testing multiple users)
+# ==================================================
+# SIDEBAR USER SELECTION
+# ==================================================
 with st.sidebar:
-    st.header("Test User")
+    st.header("👤 Test User")
     st.session_state.current_user = st.text_input(
-        "Current User ID", 
+        "Current User ID",
         value=st.session_state.current_user
     )
     st.info(f"Logged in as: {st.session_state.current_user}")
 
-# Main tabs
-tab1, tab2, tab3, tab4 = st.tabs(["Stokvel Savings", "Individual Savings", "Credit Score", "Loans"])
+    # 🔔 Notifications summary
+    unread_count = notifs.get_unread_count(st.session_state.current_user)
+    st.markdown(f"🔔 **Unread Notifications:** {unread_count}")
 
-# ============================================
+    with st.expander("View Notifications"):
+        user_notifs = notifs.get_user_notifications(st.session_state.current_user)
+        if not user_notifs:
+            st.write("No notifications yet.")
+        else:
+            for n in user_notifs[:10]:
+                st.write(f"🕒 {n['created_at'].strftime('%Y-%m-%d %H:%M')} — {n['message']}")
+                if not n['read']:
+                    notifs.mark_notification_read(n['notification_id'], st.session_state.current_user)
+
+# ==================================================
+# MAIN TABS
+# ==================================================
+tab1, tab2, tab3 = st.tabs(["🤝 Stokvel Savings", "💵 Individual Savings", "🏧 Withdrawals"])
+
+# ==================================================
 # STOKVEL TAB
-# ============================================
+# ==================================================
 with tab1:
     st.header("Stokvel Management")
-    
-    # Create Stokvel Section
+
     with st.expander("➕ Create New Stokvel", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
@@ -75,33 +83,31 @@ with tab1:
             stokvel_id = st.text_input("Stokvel ID (unique)")
         with col2:
             monthly_amount = st.number_input(
-                "Monthly Amount (R)", 
-                min_value=0.0, 
+                "Monthly Amount (R)",
+                min_value=10.0,
                 max_value=5000.0,
                 value=500.0
             )
-        
+
         if st.button("Create Stokvel"):
             try:
                 stokvel = manager.create_stokvel(
-                    stokvel_id, 
-                    stokvel_name, 
+                    stokvel_id,
+                    stokvel_name,
                     st.session_state.current_user,
                     monthly_amount
                 )
                 st.success(f"✅ Stokvel '{stokvel_name}' created successfully!")
             except ValueError as e:
                 st.error(f"❌ {str(e)}")
-    
-    # View User's Stokvels
+
     st.subheader("Your Stokvels")
     user_stokvels = manager.get_user_stokvels(st.session_state.current_user)
-    
+
     if user_stokvels:
         for stokvel_data in user_stokvels:
             with st.container():
                 st.markdown(f"### {stokvel_data['name']}")
-                
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Total Saved", f"R{stokvel_data['total_contributions']:,.2f}")
@@ -109,55 +115,52 @@ with tab1:
                     st.metric("Members", stokvel_data['member_count'])
                 with col3:
                     st.metric("Monthly Target", f"R{stokvel_data['monthly_amount']:,.2f}")
-                
+
                 # Add Contribution
-                with st.expander("💸 Add Contribution"):
+                with st.expander("💸 Add Contribution (Deposit via Store)"):
                     contribution_amount = st.number_input(
-                        "Amount (R)", 
-                        min_value=0.0, 
+                        "Amount (R)",
+                        min_value=10.0,
                         max_value=5000.0,
                         key=f"contrib_{stokvel_data['stokvel_id']}"
                     )
-                    if st.button("Add Contribution", key=f"add_{stokvel_data['stokvel_id']}"):
+                    if st.button("Generate Deposit PIN", key=f"deposit_{stokvel_data['stokvel_id']}"):
                         try:
                             stokvel = manager.get_stokvel(stokvel_data['stokvel_id'])
-                            stokvel.add_contribution(
-                                st.session_state.current_user, 
-                                contribution_amount
-                            )
-                            st.success(f"✅ Added R{contribution_amount:,.2f}")
-                            st.rerun()
+                            # Generate PIN using existing method for deposit
+                            pin = payments.request_stokvel_withdrawal(st.session_state.current_user, stokvel_data['stokvel_id'])
+                            st.success(f"✅ Deposit PIN generated: **{pin.pin_code}** — Amount: R{contribution_amount:,.2f}")
                         except ValueError as e:
                             st.error(f"❌ {str(e)}")
-                
-                # View Members
+
                 with st.expander("👥 View Members"):
                     for member_id, member_data in stokvel_data['members'].items():
-                        status_emoji = "✅" if member_data['status'] == "accepted" else "⏳" if member_data['status'] == "pending" else "❌"
-                        st.write(f"{status_emoji} **{member_id}**: R{member_data['total_contributed']:,.2f} ({member_data['status']})")
-                
+                        emoji = "✅" if member_data['status'] == "accepted" else "⏳" if member_data['status'] == "pending" else "❌"
+                        st.write(f"{emoji} **{member_id}** — R{member_data['total_contributed']:,.2f} ({member_data['status']})")
+
                 st.divider()
     else:
-        st.info("You are not part of any stokvel yet. Create one or wait for an invitation!")
-    
-    # Manage Invitations
+        st.info("You are not part of any stokvel yet. Create one or wait for an invitation.")
+
+    # Invitations
     with st.expander("📨 Manage Stokvel Invitations"):
         existing_stokvel_id = st.selectbox(
             "Select Stokvel",
             options=list(manager.stokvels.keys()) if manager.stokvels else ["No stokvels available"]
         )
-        
+
         if existing_stokvel_id != "No stokvels available":
             action = st.radio("Action", ["Invite Member", "Accept Invitation", "Reject Invitation"])
-            
             member_id_input = st.text_input("Member ID", key="member_invite")
-            
+
             if st.button("Execute Action"):
                 try:
                     stokvel = manager.get_stokvel(existing_stokvel_id)
-                    
                     if action == "Invite Member":
-                        stokvel.invite_member(member_id_input)
+                        stokvel.invite_member(member_id_input, st.session_state.current_user)
+                        notifs.send_stokvel_invitation_notification(
+                            st.session_state.current_user, stokvel.name, st.session_state.current_user, member_id_input, stokvel.monthly_amount
+                        )
                         st.success(f"✅ Invited {member_id_input} to stokvel")
                     elif action == "Accept Invitation":
                         stokvel.accept_invitation(member_id_input)
@@ -165,173 +168,122 @@ with tab1:
                     else:
                         stokvel.reject_invitation(member_id_input)
                         st.warning(f"⚠️ {member_id_input} rejected invitation")
-                    
-                    st.rerun()
                 except ValueError as e:
                     st.error(f"❌ {str(e)}")
 
-## ============================================
-# CREDIT SCORE TAB
-# ============================================
-with tab3:
-    st.header("💳 Credit Score Estimator & Loans")
-
-    user_data = get_user_financial_data(manager, st.session_state.current_user)
-    base_score = predict_credit_score(user_data)
-
-    # Adjust score automatically based on loan repayment history
-    credit_score = loan_manager.adjust_credit_score(base_score, st.session_state.current_user)
-
-    st.metric("Predicted Credit Score", f"{credit_score:.0f} / 850")
-
-    st.metric("Predicted Credit Score", f"{credit_score:.0f}")
-    if credit_score >= 700:
-        st.success("✅ Excellent Credit: Low risk borrower.")
-    elif credit_score >= 600:
-        st.info("🟨 Fair Credit: Moderate risk borrower.")
-    else:
-        st.warning("⚠️ Poor Credit: High risk borrower.")
-
-# ============================================
-# LOANS TAB
-# ============================================
-with tab4:
-    st.subheader("💸 Request a Loan")
-    max_loan = loan_manager.get_max_loan_amount(credit_score, st.session_state.current_user)
-    st.info(f"Maximum you can borrow: R{max_loan}")
-
-    requested_amount = st.number_input(
-        "Amount to borrow (R)", 
-        min_value=0.0, 
-        max_value=float(max_loan), 
-        value=200.0
-    )
-
-    if st.button("Request Loan"):
-        try:
-            loan = loan_manager.create_loan(st.session_state.current_user, credit_score, requested_amount)
-            st.success(f"Loan of R{requested_amount} approved! Due by {loan.due_date.strftime('%Y-%m-%d')}")
-        except ValueError as e:
-            st.error(str(e))
-
-    # Display outstanding loans
-    st.subheader("📄 Outstanding Loans")
-    user_loans = loan_manager.get_user_loans(st.session_state.current_user)
-    for i, loan in enumerate(user_loans):
-        status = "✅ Repaid" if loan.repaid else "⏳ Pending"
-        st.write(f"Loan R{loan.amount} | Due: {loan.due_date.strftime('%Y-%m-%d')} | Status: {status}")
-        if not loan.repaid:
-            if st.button(f"Repay Loan {i+1} On-Time"):
-                loan_manager.repay_loan(st.session_state.current_user, i, on_time=True)
-                st.experimental_rerun()
-            if st.button(f"Repay Loan {i+1} Late"):
-                loan_manager.repay_loan(st.session_state.current_user, i, on_time=False)
-                st.experimental_rerun()
-
-# ============================================
+# ==================================================
 # INDIVIDUAL SAVINGS TAB
-# ============================================
+# ==================================================
 with tab2:
     st.header("Individual Savings")
-    
-    # Create or Load Individual Savings
+
     try:
         individual_savings = manager.get_individual_savings(st.session_state.current_user)
     except ValueError:
-        # Account doesn't exist, show creation form
         with st.expander("➕ Create Savings Account", expanded=True):
-            savings_goal = st.number_input(
-                "Set Savings Goal (Optional, R)", 
-                min_value=0.0,
-                value=5000.0
-            )
+            goal = st.number_input("Set Savings Goal (R)", min_value=10.0, value=5000.0)
             if st.button("Create Savings Account"):
-                individual_savings = manager.create_individual_savings(
-                    st.session_state.current_user,
-                    savings_goal if savings_goal > 0 else None
-                )
+                manager.create_individual_savings(st.session_state.current_user, goal if goal > 0 else None)
                 st.success("✅ Savings account created!")
-                st.rerun()
-            st.stop()
-    
-    # Display Savings Summary
-    summary = individual_savings.get_savings_summary(include_interest=True)
-    
+        st.stop()
+
+    summary = individual_savings.get_savings_summary()
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Saved", f"R{summary['total_saved']:,.2f}")
     with col2:
-        if summary['total_with_interest']:
-            st.metric("With Interest (5%)", f"R{summary['total_with_interest']:,.2f}")
-    with col3:
         if summary['savings_goal']:
             st.metric("Goal", f"R{summary['savings_goal']:,.2f}")
-    
-    # Progress Bar
-    if summary['progress_percentage'] is not None:
+    with col3:
+        progress = summary['progress_percentage']
+        if progress:
+            st.metric("Progress", f"{progress:.1f}%")
+
+    if summary['progress_percentage']:
         st.progress(min(summary['progress_percentage'] / 100, 1.0))
-        st.write(f"Progress: {summary['progress_percentage']:.1f}%")
-    
+
     st.divider()
-    
-    # Add Contribution
-    st.subheader("💵 Add Money to Savings")
+
+    st.subheader("💵 Add Money (Deposit via Store)")
     col1, col2 = st.columns([3, 1])
     with col1:
-        contribution_amount = st.number_input(
-            "Amount (R)", 
-            min_value=0.0, 
-            max_value=5000.0,
-            value=100.0,
-            key="individual_contrib"
-        )
+        amount = st.number_input("Amount (R)", min_value=0.0, max_value=5000.0, value=100.0)
     with col2:
-        st.write("")  # Spacing
-        st.write("")  # Spacing
-        if st.button("Add to Savings", type="primary"):
+        st.write("")
+        if st.button("Generate Deposit PIN", type="primary"):
             try:
-                individual_savings.add_contribution(contribution_amount)
-                st.success(f"✅ Added R{contribution_amount:,.2f} to savings!")
-                st.rerun()
+                # Use existing withdrawal method to generate a deposit PIN
+                pin = payments.request_individual_withdrawal(st.session_state.current_user, amount)
+                st.success(f"✅ Deposit PIN generated: **{pin.pin_code}** — Amount: R{amount:,.2f}")
             except ValueError as e:
                 st.error(f"❌ {str(e)}")
-    
-    # Update Goal
-    with st.expander("🎯 Update Savings Goal"):
-        new_goal = st.number_input(
-            "New Goal (R)", 
-            min_value=0.0,
-            value=summary['savings_goal'] if summary['savings_goal'] else 10000.0
-        )
+
+    with st.expander("🎯 Update Goal"):
+        new_goal = st.number_input("New Goal (R)", min_value=0.0, value=summary['savings_goal'] or 10000.0)
         if st.button("Update Goal"):
-            try:
-                individual_savings.set_savings_goal(new_goal)
-                st.success(f"✅ Goal updated to R{new_goal:,.2f}")
-                st.rerun()
-            except ValueError as e:
-                st.error(f"❌ {str(e)}")
-    
-    # Contribution History
-    if individual_savings.contributions:
-        st.subheader("📊 Contribution History")
-        for i, contrib in enumerate(reversed(individual_savings.contributions)):
-            st.write(f"**{contrib['date'].strftime('%Y-%m-%d %H:%M')}** - R{contrib['amount']:,.2f}")
+            individual_savings.set_savings_goal(new_goal)
+            st.success(f"✅ Goal updated to R{new_goal:,.2f}")
 
+# ==================================================
+# WITHDRAWALS TAB
+# ==================================================
+with tab3:
+    st.header("🏧 Withdraw Money")
 
-# Debug Info (collapsible)
+    subtab1, subtab2 = st.tabs(["💰 Individual Savings Withdrawal", "👥 Stokvel Payout Withdrawal"])
+
+    # ---------------------------
+    # Individual Savings Withdraw
+    # ---------------------------
+    with subtab1:
+        st.subheader("Withdraw from Individual Savings")
+        try:
+            total_saved = manager.get_individual_savings(st.session_state.current_user).get_total_savings()
+            st.info(f"Available Balance: R{total_saved:,.2f}")
+
+            amount = st.number_input("Withdrawal Amount (R)", min_value=50.0, max_value=5000.0, value=100.0)
+            if st.button("Request Withdrawal", key="req_ind_withdraw"):
+                allowed, msg = security.verify_withdrawal_request(st.session_state.current_user, amount)
+                if not allowed:
+                    st.warning(msg)
+                else:
+                    try:
+                        pin = payments.request_individual_withdrawal(st.session_state.current_user, amount)
+                        st.success(f"✅ Withdrawal PIN generated: **{pin.pin_code}** — Amount: R{amount:,.2f}")
+                    except ValueError as e:
+                        st.error(f"❌ {str(e)}")
+        except ValueError:
+            st.warning("No individual savings account found.")
+
+    # ---------------------------
+    # Stokvel Withdraw
+    # ---------------------------
+    with subtab2:
+        st.subheader("Withdraw from Stokvel")
+        stokvel_options = list(manager.stokvels.keys())
+        if stokvel_options:
+            stokvel_id = st.selectbox("Select Stokvel", stokvel_options, key="select_stokvel")
+            if st.button("Request Stokvel Payout", key="req_stok_payout"):
+                try:
+                    pin = payments.request_stokvel_withdrawal(st.session_state.current_user, stokvel_id)
+                    st.success(f"✅ Stokvel withdrawal PIN: **{pin.pin_code}**")
+                except ValueError as e:
+                    st.error(f"❌ {str(e)}")
+        else:
+            st.info("No stokvels available for withdrawal yet.")
+
+# ==================================================
+# DEBUG INFO
+# ==================================================
 with st.sidebar.expander("🔧 Debug Info"):
     st.write("**All Stokvels:**", list(manager.stokvels.keys()))
     st.write("**All Savings Accounts:**", list(manager.individual_savings.keys()))
+    st.write("**All PINs:**", [p['pin_code'] for p in payments.get_user_pins(st.session_state.current_user, include_expired=True)])
 
-# -------------------------------------------------------
-# Footer
-# -------------------------------------------------------
 
-st.markdown(
-    """
-    ---
-    **Afriscore** © 2025  
-    *Financial Freedom for all*
-    """
-)
+
+
+
+
+
 
