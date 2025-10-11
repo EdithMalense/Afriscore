@@ -1,102 +1,122 @@
-from datetime import datetime, timedelta
+import os
+import json, uuid, datetime
 
-class Loan:
-    def __init__(self, amount, date, due_date):
-        self.amount = amount
-        self.date = date
-        self.due_date = due_date
-        self.repaid = False
-        self.repaid_on_time = None  # True/False
+loan_limits = {}
 
-class LoanManager:
-    def __init__(self):
-        # user_id -> list of Loan objects
-        self.loans = {}
+DATA_FILE = "data/loans.json"
 
-        # user_id -> base loan limit (starts at 200)
-        self.loan_limits = {}
+def load_data():
+    try:
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"users": {}, "loans": []}
 
-    # -----------------------------
-    # 1️⃣ Maximum loan based on credit score
-    # -----------------------------
-    def get_max_loan_amount(self, credit_score, user_id=None):
-        """Determine max loan based on credit score"""
-        if credit_score < 600:
-            base = 200
-        elif credit_score < 650:
-            base = 1000
-        elif credit_score < 700:
-            base = 2500
-        elif credit_score < 750:
-            base = 4000
-        else:
-            base = 5000
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2, default=str)
 
-        # Ensure user cannot exceed personalized limit
-        if user_id:
-            personalized_limit = self.loan_limits.get(user_id, 200)
-            return min(base, personalized_limit)
-        return base
+def create_loan(user, amount, months):
+    data = load_data()
+    otp = str(uuid.uuid4())[:6]
+    due_dates = []
+    installment = round(amount / months, 2)
+    start_date = datetime.date.today()
+    for i in range(months):
+        due_dates.append((start_date + datetime.timedelta(days=30 * (i+1))).isoformat())
 
-    # -----------------------------
-    # 2️⃣ Create a new loan
-    # -----------------------------
-    def create_loan(self, user_id, credit_score, requested_amount):
-        max_loan = self.get_max_loan_amount(credit_score, user_id)
-        if requested_amount > max_loan:
-            raise ValueError(f"Maximum loan allowed: R{max_loan}")
+    loan = {
+        "id": str(uuid.uuid4()),
+        "user": user,
+        "amount": amount,
+        "installment": installment,
+        "months": months,
+        "due_dates": due_dates,
+        "payments": [],
+        "otp": otp,
+        "granted": False,
+        "repaid": False,
+    }
 
-        loan = Loan(
-            amount=requested_amount,
-            date=datetime.now(),
-            due_date=datetime.now() + timedelta(days=30)  # 30-day repayment
-        )
+    data["loans"].append(loan)
+    save_data(data)
+    return otp
 
-        self.loans.setdefault(user_id, []).append(loan)
-        return loan
+def grant_loan(otp):
+    data = load_data()
+    for loan in data["loans"]:
+        if loan["otp"] == otp and not loan["granted"]:
+            loan["granted"] = True
+            save_data(data)
+            return True
+    return False
 
-    # -----------------------------
-    # 3️⃣ Repay a loan
-    # -----------------------------
-    def repay_loan(self, user_id, loan_index, on_time=True):
-        """User repays loan"""
-        loans = self.loans.get(user_id, [])
-        if loan_index >= len(loans):
-            raise IndexError("Invalid loan index")
-        loan = loans[loan_index]
-        loan.repaid = True
-        loan.repaid_on_time = on_time
+def record_payment(otp, amount):
+    data = load_data()
+    for loan in data["loans"]:
+        if loan["otp"] == otp:
+            loan["payments"].append({"amount": amount, "date": datetime.date.today().isoformat()})
+            if sum(p["amount"] for p in loan["payments"]) >= loan["amount"]:
+                loan["repaid"] = True
+            save_data(data)
+            return loan
+    return None
 
-        # Adjust loan limit based on repayment
-        current_limit = self.loan_limits.get(user_id, 200)
-        if on_time:
-            # Gradually increase limit by 10% of current limit
-            self.loan_limits[user_id] = min(current_limit * 1.1, 5000)
-        else:
-            # Penalize by decreasing limit 10%
-            self.loan_limits[user_id] = max(current_limit * 0.9, 200)
+def adjust_credit_score(base_score, user_id):
+    from loans import get_user_loans
+    loans = get_user_loans(user_id)
+    adjusted_score = base_score
 
-    # -----------------------------
-    # 4️⃣ Adjust credit score based on loans
-    # -----------------------------
-    def adjust_credit_score(self, base_score, user_id):
-        """Increase/decrease credit score based on repayment behavior"""
-        loans = self.loans.get(user_id, [])
-        adjusted_score = base_score
-        for loan in loans:
-            if loan.repaid:
-                if loan.repaid_on_time:
-                    adjusted_score += 5  # timely repayment boost
-                else:
-                    adjusted_score -= 10  # late repayment penalty
+    for loan in loans:
+        payments = loan.get("payments", [])
+        for idx, payment in enumerate(payments):
+            due_date_str = loan.get("due_dates", [])[idx] if idx < len(loan.get("due_dates", [])) else None
+            if due_date_str:
+                due_date = datetime.fromisoformat(due_date_str)
+                paid_on_time = datetime.fromisoformat(payment["date"]) <= due_date
             else:
-                # Optionally, penalize overdue loans
-                if datetime.now() > loan.due_date:
-                    adjusted_score -= 5
-        return max(300, min(adjusted_score, 850))
+                paid_on_time = True
 
-    # -----------------------------
-    # 5️⃣ Helper: Get user loans
-    # -----------------------------
-    def get_user_loans(self, user_id):
-        return self.loans.get(user_id, [])
+            if paid_on_time:
+                adjusted_score += 2
+            else:
+                adjusted_score -= 3
+
+        # Bonus for full loan repayment on time
+        if loan.get("repaid", False):
+            all_paid_on_time = True
+            for idx, payment in enumerate(payments):
+                due_date_str = loan.get("due_dates", [])[idx] if idx < len(loan.get("due_dates", [])) else None
+                if due_date_str and datetime.fromisoformat(payment["date"]) > datetime.fromisoformat(due_date_str):
+                    all_paid_on_time = False
+            if all_paid_on_time:
+                adjusted_score += 5
+
+    # Update personalized limit
+    current_limit = loan_limits.get(user_id, 200)
+    on_time_payments = sum(
+        1 for loan in loans for idx, payment in enumerate(loan.get("payments", []))
+        if idx < len(loan.get("due_dates", [])) and datetime.fromisoformat(payment["date"]) <= datetime.fromisoformat(loan["due_dates"][idx])
+    )
+    late_payments = sum(
+        1 for loan in loans for idx, payment in enumerate(loan.get("payments", []))
+        if idx < len(loan.get("due_dates", [])) and datetime.fromisoformat(payment["date"]) > datetime.fromisoformat(loan["due_dates"][idx])
+    )
+
+    if on_time_payments > late_payments:
+        loan_limits[user_id] = min(current_limit * 1.1, 5000)
+    else:
+        loan_limits[user_id] = max(current_limit * 0.9, 200)
+
+    return max(300, min(adjusted_score, 850))
+
+def get_user_loans(user):
+    data = load_data()
+    return [loan for loan in data["loans"] if loan["user"] == user]
+
+def save_data(data):
+    # Ensure the folder exists
+    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2, default=str)
+

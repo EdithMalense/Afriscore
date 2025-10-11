@@ -2,9 +2,13 @@ import streamlit as st
 from savings import SavingsManager, Stokvel, IndividualSavings
 from datetime import datetime
 from creditscore import predict_credit_score
-from loans import LoanManager
+from loans import create_loan, get_user_loans, grant_loan, record_payment, adjust_credit_score
 import numpy as np
 import pandas as pd
+import requests
+
+
+API_URL = "http://localhost:8000"
 
 # Initialize session state
 if 'manager' not in st.session_state:
@@ -13,12 +17,7 @@ if 'manager' not in st.session_state:
 if 'current_user' not in st.session_state:
     st.session_state.current_user = "user_001"  # Default test user
 
-# Initialize LoanManager
-if 'loan_manager' not in st.session_state:
-    st.session_state.loan_manager = LoanManager()
-
-loan_manager = st.session_state.loan_manager
-
+current_user = st.session_state.current_user
 manager = st.session_state.manager
 
 def get_user_financial_data(manager, user_id):
@@ -180,9 +179,7 @@ with tab3:
     base_score = predict_credit_score(user_data)
 
     # Adjust score automatically based on loan repayment history
-    credit_score = loan_manager.adjust_credit_score(base_score, st.session_state.current_user)
-
-    st.metric("Predicted Credit Score", f"{credit_score:.0f} / 850")
+    credit_score = adjust_credit_score(base_score, current_user)
 
     st.metric("Predicted Credit Score", f"{credit_score:.0f}")
     if credit_score >= 700:
@@ -192,41 +189,34 @@ with tab3:
     else:
         st.warning("⚠️ Poor Credit: High risk borrower.")
 
+
 # ============================================
 # LOANS TAB
 # ============================================
 with tab4:
-    st.subheader("💸 Request a Loan")
-    max_loan = loan_manager.get_max_loan_amount(credit_score, st.session_state.current_user)
-    st.info(f"Maximum you can borrow: R{max_loan}")
-
-    requested_amount = st.number_input(
-        "Amount to borrow (R)", 
-        min_value=0.0, 
-        max_value=float(max_loan), 
-        value=200.0
-    )
-
+    st.subheader("📩 Request a New Loan")
+    amount = st.number_input("Loan Amount (R)", min_value=100.0)
+    months = st.number_input("Repayment Months", min_value=1, max_value=12, step=1)
     if st.button("Request Loan"):
-        try:
-            loan = loan_manager.create_loan(st.session_state.current_user, credit_score, requested_amount)
-            st.success(f"Loan of R{requested_amount} approved! Due by {loan.due_date.strftime('%Y-%m-%d')}")
-        except ValueError as e:
-            st.error(str(e))
+        otp = create_loan(current_user, amount, months)
+        st.success(f"Loan requested. OTP for store collection: {otp}")
 
-    # Display outstanding loans
+    # View Outstanding Loans
     st.subheader("📄 Outstanding Loans")
-    user_loans = loan_manager.get_user_loans(st.session_state.current_user)
-    for i, loan in enumerate(user_loans):
-        status = "✅ Repaid" if loan.repaid else "⏳ Pending"
-        st.write(f"Loan R{loan.amount} | Due: {loan.due_date.strftime('%Y-%m-%d')} | Status: {status}")
-        if not loan.repaid:
-            if st.button(f"Repay Loan {i+1} On-Time"):
-                loan_manager.repay_loan(st.session_state.current_user, i, on_time=True)
-                st.experimental_rerun()
-            if st.button(f"Repay Loan {i+1} Late"):
-                loan_manager.repay_loan(st.session_state.current_user, i, on_time=False)
-                st.experimental_rerun()
+    user_loans = get_user_loans(current_user)
+
+    if not user_loans:
+        st.info("No loans yet.")
+    else:
+        for i, loan in enumerate(user_loans):
+            status = "✅ Repaid" if loan["repaid"] else "⏳ Ongoing"
+            st.write(f"Loan {i+1}: R{loan['amount']} | Installment: R{loan['installment']} | Status: {status}")
+            st.write(f"Due Dates: {', '.join(loan['due_dates'])}")
+            st.write(f"Payments made: {len(loan['payments'])}/{loan['months']}")
+
+            if not loan["repaid"]:
+                st.info("Payments are made in person at the store. Your loan status will update automatically once the store records the payment.")
+
 
 # ============================================
 # INDIVIDUAL SAVINGS TAB
