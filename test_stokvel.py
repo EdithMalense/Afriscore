@@ -2,9 +2,9 @@ import streamlit as st
 from savings import SavingsManager, Stokvel, IndividualSavings
 from datetime import datetime
 from creditscore import predict_credit_score
+from loans import LoanManager
 import numpy as np
 import pandas as pd
-
 
 # Initialize session state
 if 'manager' not in st.session_state:
@@ -12,6 +12,12 @@ if 'manager' not in st.session_state:
 
 if 'current_user' not in st.session_state:
     st.session_state.current_user = "user_001"  # Default test user
+
+# Initialize LoanManager
+if 'loan_manager' not in st.session_state:
+    st.session_state.loan_manager = LoanManager()
+
+loan_manager = st.session_state.loan_manager
 
 manager = st.session_state.manager
 
@@ -53,7 +59,7 @@ with st.sidebar:
     st.info(f"Logged in as: {st.session_state.current_user}")
 
 # Main tabs
-tab1, tab2, tab3 = st.tabs(["Stokvel Savings", "Individual Savings", "Credit Score"])
+tab1, tab2, tab3, tab4 = st.tabs(["Stokvel Savings", "Individual Savings", "Credit Score", "Loans"])
 
 # ============================================
 # STOKVEL TAB
@@ -168,20 +174,59 @@ with tab1:
 # CREDIT SCORE TAB
 # ============================================
 with tab3:
-    st.header("💳 Credit Score Estimator")
+    st.header("💳 Credit Score Estimator & Loans")
 
     user_data = get_user_financial_data(manager, st.session_state.current_user)
+    base_score = predict_credit_score(user_data)
 
-    # Use the model from model.py
-    pred_score = predict_credit_score(user_data)
+    # Adjust score automatically based on loan repayment history
+    credit_score = loan_manager.adjust_credit_score(base_score, st.session_state.current_user)
 
-    st.metric("Predicted Credit Score", f"{pred_score:.0f}")
-    if pred_score >= 700:
+    st.metric("Predicted Credit Score", f"{credit_score:.0f} / 850")
+
+    st.metric("Predicted Credit Score", f"{credit_score:.0f}")
+    if credit_score >= 700:
         st.success("✅ Excellent Credit: Low risk borrower.")
-    elif pred_score >= 600:
+    elif credit_score >= 600:
         st.info("🟨 Fair Credit: Moderate risk borrower.")
     else:
         st.warning("⚠️ Poor Credit: High risk borrower.")
+
+# ============================================
+# LOANS TAB
+# ============================================
+with tab4:
+    st.subheader("💸 Request a Loan")
+    max_loan = loan_manager.get_max_loan_amount(credit_score, st.session_state.current_user)
+    st.info(f"Maximum you can borrow: R{max_loan}")
+
+    requested_amount = st.number_input(
+        "Amount to borrow (R)", 
+        min_value=0.0, 
+        max_value=float(max_loan), 
+        value=200.0
+    )
+
+    if st.button("Request Loan"):
+        try:
+            loan = loan_manager.create_loan(st.session_state.current_user, credit_score, requested_amount)
+            st.success(f"Loan of R{requested_amount} approved! Due by {loan.due_date.strftime('%Y-%m-%d')}")
+        except ValueError as e:
+            st.error(str(e))
+
+    # Display outstanding loans
+    st.subheader("📄 Outstanding Loans")
+    user_loans = loan_manager.get_user_loans(st.session_state.current_user)
+    for i, loan in enumerate(user_loans):
+        status = "✅ Repaid" if loan.repaid else "⏳ Pending"
+        st.write(f"Loan R{loan.amount} | Due: {loan.due_date.strftime('%Y-%m-%d')} | Status: {status}")
+        if not loan.repaid:
+            if st.button(f"Repay Loan {i+1} On-Time"):
+                loan_manager.repay_loan(st.session_state.current_user, i, on_time=True)
+                st.experimental_rerun()
+            if st.button(f"Repay Loan {i+1} Late"):
+                loan_manager.repay_loan(st.session_state.current_user, i, on_time=False)
+                st.experimental_rerun()
 
 # ============================================
 # INDIVIDUAL SAVINGS TAB
