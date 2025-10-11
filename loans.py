@@ -18,6 +18,15 @@ def save_data(data):
 
 def create_loan(user, amount, months):
     data = load_data()
+
+    # 🔒 Check for existing active loans
+    active_loans = [
+        loan for loan in data["loans"]
+        if loan["user"] == user and not loan["repaid"]
+    ]
+    if active_loans:
+        raise ValueError("You already have an active loan. Please repay it before applying for a new one.")
+
     otp = str(uuid.uuid4())[:6]
     due_dates = []
     installment = round(amount / months, 2)
@@ -109,6 +118,38 @@ def adjust_credit_score(base_score, user_id):
         loan_limits[user_id] = max(current_limit * 0.9, 200)
 
     return max(300, min(adjusted_score, 850))
+
+def extract_loan_features(user):
+    loans = get_user_loans(user)
+    
+    total_loans = len(loans)
+    fully_repaid = sum(1 for loan in loans if loan.get("repaid", False))
+    late_payments = 0
+    on_time_payments = 0
+    total_borrowed = sum(loan["amount"] for loan in loans)
+    
+    for loan in loans:
+        payments = loan.get("payments", [])
+        due_dates = loan.get("due_dates", [])
+        for idx, payment in enumerate(payments):
+            if idx < len(due_dates):
+                due_date = datetime.fromisoformat(due_dates[idx])
+                paid_on_time = datetime.fromisoformat(payment["date"]) <= due_date
+                if paid_on_time:
+                    on_time_payments += 1
+                else:
+                    late_payments += 1
+    
+    features = {
+        "total_loans": total_loans,
+        "fully_repaid": fully_repaid,
+        "late_payments": late_payments,
+        "on_time_payments": on_time_payments,
+        "total_borrowed": total_borrowed,
+    }
+    
+    return features
+
 
 def get_user_loans(user):
     data = load_data()

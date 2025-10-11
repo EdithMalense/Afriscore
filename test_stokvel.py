@@ -5,7 +5,7 @@ from notifications import NotificationManager
 from security import SecurityManager
 from datetime import datetime
 from creditscore import predict_credit_score
-from loans import create_loan, get_user_loans, grant_loan, record_payment, adjust_credit_score
+from loans import create_loan, get_user_loans, grant_loan, record_payment, adjust_credit_score, extract_loan_features
 import numpy as np
 import pandas as pd
 import requests
@@ -69,11 +69,29 @@ def get_user_financial_data(manager, user_id):
     if user_stokvels:
         data["stockvel_contribution"] = sum(s["monthly_amount"] for s in user_stokvels)
 
-    # Demo placeholders for monthly payments and loans
-    utility_score = np.random.uniform(0.3, 0.9)
-    data["monthly_payments"] = utility_score * 5000
-    mobile_activity = len(user_stokvels) * 10 if user_stokvels else 0
-    data["outstanding_loans"] = mobile_activity * 100
+    # Extract real loan-related features
+    loan_features = extract_loan_features(user_id)
+    
+    # # Replace placeholders with real values
+    # data["monthly_payments"] = loan_features.get("on_time_payments", 0) + loan_features.get("late_payments", 0)
+    # data["outstanding_loans"] = loan_features.get("total_loans", 0) * loan_features.get("installment", 0) if "installment" in loan_features else 0
+
+    # # Optional: include all loan features for ML predictor
+    
+
+    # Replace placeholders with real loan-based data
+    outstanding_balance = loan_features.get("outstanding_balance", 0)
+    total_loans = loan_features.get("total_loans", 0)
+    avg_installment = loan_features.get("avg_installment", 0)
+
+    data["monthly_payments"] = loan_features.get("on_time_payments", 0) * avg_installment
+    data["outstanding_loans"] = (
+        outstanding_balance if outstanding_balance > 0 else total_loans * avg_installment
+    )
+
+
+    #data.update(loan_features)
+    
 
     return data
     st.session_state.current_user = "user_001"
@@ -240,8 +258,11 @@ with tab5:
     amount = st.number_input("Loan Amount (R)", min_value=100.0)
     months = st.number_input("Repayment Months", min_value=1, max_value=12, step=1)
     if st.button("Request Loan"):
-        otp = create_loan(current_user, amount, months)
-        st.success(f"Loan requested. OTP for store collection: {otp}")
+        try:
+            otp = create_loan(current_user, amount, months)
+            st.success(f"Loan requested. OTP for store collection: {otp}")
+        except ValueError as e:
+            st.warning(str(e)) 
 
     # View Outstanding Loans
     st.subheader("📄 Outstanding Loans")
